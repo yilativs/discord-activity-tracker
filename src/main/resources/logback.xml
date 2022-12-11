@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>
+            %d{yyyy-MM-dd HH:mm.ss} - %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+    <logger name="org.asynchttpclient.netty" level="WARN"/> 
+    <logger name="io.netty" level="WARN"/>
+    <root level="info">
+        <appender-ref ref="Console" />
+    </root>
+</configuration>
