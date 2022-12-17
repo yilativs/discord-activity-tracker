@@ -1,7 +1,5 @@
 package com.github.yilativs.discord;
 
-import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -12,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Properties;
 
@@ -31,6 +30,7 @@ public class DiscordActivityTracker {
 	private static final Logger logger = LoggerFactory.getLogger(DiscordActivityTracker.class);
 	private static final String ACCOUNT_TO_TRACK = "account-to-track";
 	private static final String PASSWORD = "password";
+	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	public static void main(String[] args) throws InterruptedException {
 		logger.info("Discord Activity Tracker started");
@@ -83,14 +83,14 @@ public class DiscordActivityTracker {
 	private static ChromeDriver login(String email, String password) throws InterruptedException {
 		ChromeDriver driver = createChromeDriver();
 		driver.get("https://discord.com/channels/@me");
-		Thread.sleep(2000);
+		Thread.sleep(3000);
 		driver.findElement(By.name(EMAIL)).sendKeys(email);
 		Thread.sleep(1000);
 		driver.findElement(By.name("password")).sendKeys(password);
 		var b = driver.findElement(By.xpath("//button[@type='submit']"));
 		Thread.sleep(1000);
 		b.click();
-		Thread.sleep(10000);
+		Thread.sleep(15000);
 		return driver;
 	}
 
@@ -98,7 +98,7 @@ public class DiscordActivityTracker {
 		String propertyValue = properties.getProperty(propertyName);
 		if (propertyValue == null || propertyValue.isBlank()) {
 			logger.error("Missing property " + propertyName);
-			System.exit(30);
+			System.exit(10);
 		}
 		return propertyValue;
 	}
@@ -121,7 +121,7 @@ public class DiscordActivityTracker {
 		options.addArguments("--ignore-certificate-errors");
 		options.addArguments("--allow-running-insecure-content");
 		options.addArguments("--no-sandbox");
-		options.setExperimentalOption("prefs", Map.of("profile.managed_default_content_settings.images", 2));
+//		options.setExperimentalOption("prefs", Map.of("profiBogdan Stojčićle.managed_default_content_settings.images", 2));
 		var d = new ChromeDriver(options);
 		return d;
 	}
@@ -134,14 +134,14 @@ public class DiscordActivityTracker {
 			if (isNotGreyCircle(element)) {
 				writeActivityTimeToLog(accountId, activityLogFileName);
 			}
-			Thread.sleep(30 * 1000);
+			Thread.sleep(10 * 1000);
 		}
 	}
 
 	private static void writeActivityTimeToLog(String accountId, String activityLogFileName) {
 		try {
 			Files.write(Paths.get(activityLogFileName),
-					(LocalDateTime.now().format(ISO_LOCAL_DATE_TIME) + System.lineSeparator()).getBytes(),
+					(LocalDateTime.now().format(FORMATTER) + System.lineSeparator()).getBytes(),
 					StandardOpenOption.APPEND);
 		} catch (IOException e) {
 			logger.error(
