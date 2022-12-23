@@ -1,17 +1,17 @@
 package com.github.yilativs.discord;
 
+import static java.nio.file.Files.write;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
 import java.util.Properties;
 
 import org.openqa.selenium.By;
@@ -22,6 +22,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DiscordActivityTracker {
+	private static final boolean IS_ONLINE = true;
+	private static final int PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS = 5;
 	private static final String ACTIVITY_LOG_FILE_NAME = "-activity.log";
 	private static final String EMAIL = "email";
 	private static final String SEPARATOR = FileSystems.getDefault().getSeparator();
@@ -31,6 +33,8 @@ public class DiscordActivityTracker {
 	private static final String ACCOUNT_TO_TRACK = "account-to-track";
 	private static final String PASSWORD = "password";
 	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+	private static LocalDateTime periodStartTimestamp = null;
+	private static String activityLogFileName;
 
 	public static void main(String[] args) throws InterruptedException {
 		logger.info("Discord Activity Tracker started");
@@ -43,7 +47,7 @@ public class DiscordActivityTracker {
 			String email = getProperty(properties, EMAIL);
 			String account = getProperty(properties, ACCOUNT_TO_TRACK);
 			String password = getPassword(properties);
-			String activityLogFileName = createActivityLogFIleIfMissing(currentDir, account);
+			activityLogFileName = createActivityLogFIleIfMissing(currentDir, account);
 
 			ChromeDriver driver = login(email, password);
 			addShutdownHookToDisposeWebDriver(driver);
@@ -75,6 +79,9 @@ public class DiscordActivityTracker {
 
 	private static void addShutdownHookToDisposeWebDriver(final ChromeDriver driver) {
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			if (isPeriodStarted()) {
+				writeActivityTimeToLog(LocalDateTime.now(), !IS_ONLINE);
+			}
 			driver.quit();
 			logger.info("tracking is stopped.");
 		}));
@@ -132,20 +139,39 @@ public class DiscordActivityTracker {
 			// click on the tacked user icon and copy id
 			var element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + accountId + "']"));
 			if (isNotGreyCircle(element)) {
-				writeActivityTimeToLog(accountId, activityLogFileName);
+				if (periodStartTimestamp == null) {
+					periodStartTimestamp = LocalDateTime.now();
+					writeActivityTimeToLog(periodStartTimestamp, IS_ONLINE);
+				}
+			} else {
+				if (periodStartTimestamp != null) {
+					writeActivityTimeToLog(LocalDateTime.now(), !IS_ONLINE);
+					periodStartTimestamp = null;
+				}
 			}
-			Thread.sleep(10 * 1000);
+			Thread.sleep(PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS * 1000);
 		}
 	}
 
-	private static void writeActivityTimeToLog(String accountId, String activityLogFileName) {
+	private static boolean isPeriodStarted() {
+		return periodStartTimestamp != null;
+	}
+
+	private static void writeActivityTimeToLog(LocalDateTime timestamp, boolean isOnline) {
 		try {
-			Files.write(Paths.get(activityLogFileName),
-					(LocalDateTime.now().format(FORMATTER) + System.lineSeparator()).getBytes(),
-					StandardOpenOption.APPEND);
+			if (isOnline) {
+				write(Paths.get(activityLogFileName),
+						(timestamp.format(FORMATTER) + "\t").getBytes(),
+						StandardOpenOption.APPEND);
+			} else {
+				write(Paths.get(activityLogFileName),
+						(timestamp.format(FORMATTER) + System.lineSeparator()).getBytes(),
+						StandardOpenOption.APPEND);
+			}
+
 		} catch (IOException e) {
 			logger.error(
-					"failed to write to " + accountId + ACTIVITY_LOG_FILE_NAME + " because " + e.getMessage());
+					"failed to write to " + ACTIVITY_LOG_FILE_NAME + " because " + e.getMessage());
 		}
 		logger.info("online");
 	}
