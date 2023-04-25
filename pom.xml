@@ -6,8 +6,7 @@
 	<properties>
 		<maven.compiler.target>17</maven.compiler.target>
 		<maven.compiler.source>17</maven.compiler.source>
-		<selenium.version>4.7.0</selenium.version>
-		<testcontainers.version>1.17.4</testcontainers.version>
+		<selenium.version>4.8.3</selenium.version>
 	</properties>
 	<dependencies>
 		<dependency>
