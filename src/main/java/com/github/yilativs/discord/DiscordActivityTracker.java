@@ -138,15 +138,15 @@ public class DiscordActivityTracker {
 		while (true) {
 			// click on the tacked user icon and copy id
 			var element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + accountId + "']"));
-			if (isNotGreyCircle(element)) {
-				if (periodStartTimestamp == null) {
-					periodStartTimestamp = LocalDateTime.now();
-					writeActivityTimeToLog(periodStartTimestamp, IS_ONLINE);
-				}
-			} else {
+			if (isGreyCircleOrOffline(element)) {
 				if (periodStartTimestamp != null) {
 					writeActivityTimeToLog(LocalDateTime.now(), !IS_ONLINE);
 					periodStartTimestamp = null;
+				}
+			} else {
+				if (periodStartTimestamp == null) {
+					periodStartTimestamp = LocalDateTime.now();
+					writeActivityTimeToLog(periodStartTimestamp, IS_ONLINE);
 				}
 			}
 			Thread.sleep(PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS * 1000);
@@ -160,10 +160,12 @@ public class DiscordActivityTracker {
 	private static void writeActivityTimeToLog(LocalDateTime timestamp, boolean isOnline) {
 		try {
 			if (isOnline) {
+				logger.info("online");
 				write(Paths.get(activityLogFileName),
 						(timestamp.format(FORMATTER) + "\t").getBytes(),
 						StandardOpenOption.APPEND);
 			} else {
+				logger.info("offline");
 				write(Paths.get(activityLogFileName),
 						(timestamp.format(FORMATTER) + System.lineSeparator()).getBytes(),
 						StandardOpenOption.APPEND);
@@ -176,8 +178,11 @@ public class DiscordActivityTracker {
 		logger.info("online");
 	}
 
-	private static boolean isNotGreyCircle(WebElement element) {
-		return element.findElements(By.cssSelector("rect[fill='#747f8d']")).size() == 0;
+	private static boolean isGreyCircleOrOffline(WebElement element) {
+		//#747f8d
+		return //element.findElements(By.cssSelector("rect[fill='transparent']")).size() != 0
+				//||
+				element.findElements(By.cssSelector("rect[mask='url(#svg-mask-status-offline)']")).size() != 0;
 	}
 
 	private static String createActivityLogFIleIfMissing(String currentDir, String account) {
