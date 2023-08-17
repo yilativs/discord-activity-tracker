@@ -1,6 +1,8 @@
 package com.github.yilativs.discord;
 
 import static java.nio.file.Files.write;
+import static java.time.Duration.between;
+import static java.time.LocalDateTime.now;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -15,6 +17,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 
 import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
@@ -22,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DiscordActivityTracker {
+	private static final int MINUTES_TO_WAIT_FOR_RECONNECT_TO_WEB_DRIVER = 5;
 	private static final boolean IS_ONLINE = true;
 	private static final int PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS = 5;
 	private static final String ACTIVITY_LOG_FILE_NAME = "-activity.log";
@@ -35,32 +39,53 @@ public class DiscordActivityTracker {
 	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 	private static LocalDateTime periodStartTimestamp = null;
 	private static String activityLogFileName;
+	private final String email;
+	private final String account;
+	private final String password;
+	private static ChromeDriver driver;
+	private static LocalDateTime lastWebDriverConnectionTime = now();
 
-	public static void main(String[] args) throws InterruptedException {
+	public static void main(String[] args) {
+		while (between(now(), lastWebDriverConnectionTime).toMinutes() < MINUTES_TO_WAIT_FOR_RECONNECT_TO_WEB_DRIVER) {
+			try {
+				runTracking();
+			} catch (WebDriverException e) {
+				logger.error(e.getMessage(), e);
+			}
+		}
+	}
+
+	private static void runTracking() {
+		try {
+			DiscordActivityTracker tracker = new DiscordActivityTracker();
+			tracker.login();
+			tracker.trackActivity();
+		} catch (FileNotFoundException e) {
+			logger.error("Configuration file not found at:" + DISCORD_ACTIVITY_TRACKER);
+			System.exit(10);
+		} catch (IOException e) {
+			logger.error(
+					"Failed to read configuration file at:" + DISCORD_ACTIVITY_TRACKER + " beacause " + e.getMessage());
+			System.exit(20);
+		} catch (InterruptedException e) {
+			logger.error("Scrapping was interrupted.");
+			System.exit(30);
+		}
+	}
+
+	public DiscordActivityTracker() throws FileNotFoundException, IOException {
 		logger.info("Discord Activity Tracker started");
-
 		String currentDir = System.getProperty(USER_DIR);
 		File currentDirPropertyFile = new File(currentDir + SEPARATOR + DISCORD_ACTIVITY_TRACKER);
 		try (InputStream input = new FileInputStream(currentDirPropertyFile)) {
 			Properties properties = new Properties();
 			properties.load(input);
-			String email = getProperty(properties, EMAIL);
-			String account = getProperty(properties, ACCOUNT_TO_TRACK);
-			String password = getPassword(properties);
+			email = getProperty(properties, EMAIL);
+			account = getProperty(properties, ACCOUNT_TO_TRACK);
+			password = getPassword(properties);
 			activityLogFileName = createActivityLogFIleIfMissing(currentDir, account);
-
-			ChromeDriver driver = login(email, password);
-			addShutdownHookToDisposeWebDriver(driver);
-			trackActivity(driver, account, activityLogFileName);
-		} catch (FileNotFoundException e) {
-			logger.error("Configuration file not found at:" + currentDirPropertyFile);
-			System.exit(10);
-		} catch (IOException e) {
-			logger.error(
-					"Failed to read configuration file at:" + currentDirPropertyFile + " beacause " + e.getMessage());
-			System.exit(20);
+			driver = createChromeDriver();
 		}
-
 	}
 
 	private static String getPassword(Properties properties) {
@@ -87,8 +112,7 @@ public class DiscordActivityTracker {
 		}));
 	}
 
-	private static ChromeDriver login(String email, String password) throws InterruptedException {
-		ChromeDriver driver = createChromeDriver();
+	private void login() throws InterruptedException {
 		driver.get("https://discord.com/channels/@me");
 		Thread.sleep(3000);
 		driver.findElement(By.name(EMAIL)).sendKeys(email);
@@ -98,7 +122,6 @@ public class DiscordActivityTracker {
 		Thread.sleep(1000);
 		b.click();
 		Thread.sleep(15000);
-		return driver;
 	}
 
 	private static String getProperty(Properties properties, String propertyName) {
@@ -129,27 +152,34 @@ public class DiscordActivityTracker {
 		options.addArguments("--allow-running-insecure-content");
 		options.addArguments("--no-sandbox");
 //		options.setExperimentalOption("prefs", Map.of("profiBogdan Stojčićle.managed_default_content_settings.images", 2));
-		var d = new ChromeDriver(options);
-		return d;
+		var driver = new ChromeDriver(options);
+		addShutdownHookToDisposeWebDriver(driver);
+		return driver;
 	}
 
-	private static void trackActivity(ChromeDriver driver, String accountId, String activityLogFileName)
-			throws InterruptedException {
-		while (true) {
-			// click on the tacked user icon and copy id
-			var element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + accountId + "']"));
-			if (isGreyCircleOrOffline(element)) {
-				if (periodStartTimestamp != null) {
-					writeActivityTimeToLog(LocalDateTime.now(), !IS_ONLINE);
-					periodStartTimestamp = null;
+	private void trackActivity() throws InterruptedException {
+		try {
+			while (true) {
+				// click on the tacked user icon and copy id
+				WebElement element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + account + "']"));
+				if (isOffline(element)) {
+//			if (isGreyCircleOrOffline(element)) {
+					if (periodStartTimestamp != null) {
+						writeActivityTimeToLog(LocalDateTime.now(), !IS_ONLINE);
+						periodStartTimestamp = null;
+					}
+				} else {
+					if (periodStartTimestamp == null) {
+						periodStartTimestamp = LocalDateTime.now();
+						writeActivityTimeToLog(periodStartTimestamp, IS_ONLINE);
+					}
 				}
-			} else {
-				if (periodStartTimestamp == null) {
-					periodStartTimestamp = LocalDateTime.now();
-					writeActivityTimeToLog(periodStartTimestamp, IS_ONLINE);
-				}
+				lastWebDriverConnectionTime = LocalDateTime.now();
+				Thread.sleep(PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS * 1000);
 			}
-			Thread.sleep(PAUSE_BETWEEN_ONLINE_CHECKS_IN_SECONDS * 1000);
+		} catch (WebDriverException e) {
+			driver.close();
+			throw e;
 		}
 	}
 
@@ -161,28 +191,29 @@ public class DiscordActivityTracker {
 		try {
 			if (isOnline) {
 				logger.info("online");
-				write(Paths.get(activityLogFileName),
-						(timestamp.format(FORMATTER) + "\t").getBytes(),
+				write(Paths.get(activityLogFileName), (timestamp.format(FORMATTER) + "\t").getBytes(),
 						StandardOpenOption.APPEND);
 			} else {
 				logger.info("offline");
-				write(Paths.get(activityLogFileName),
-						(timestamp.format(FORMATTER) + System.lineSeparator()).getBytes(),
+				write(Paths.get(activityLogFileName), (timestamp.format(FORMATTER) + System.lineSeparator()).getBytes(),
 						StandardOpenOption.APPEND);
 			}
 
 		} catch (IOException e) {
-			logger.error(
-					"failed to write to " + ACTIVITY_LOG_FILE_NAME + " because " + e.getMessage());
+			logger.error("failed to write to " + ACTIVITY_LOG_FILE_NAME + " because " + e.getMessage());
 		}
-		logger.info("online");
 	}
 
-	private static boolean isGreyCircleOrOffline(WebElement element) {
-		//#747f8d
-		return //element.findElements(By.cssSelector("rect[fill='transparent']")).size() != 0
-				//||
-				element.findElements(By.cssSelector("rect[mask='url(#svg-mask-status-offline)']")).size() != 0;
+	private static boolean isGreyCircleOrOffline(WebElement element) {// wrapper-3Un6-K
+		// #747f8d
+		return // element.findElements(By.cssSelector("rect[fill='transparent']")).size() != 0
+				// ||
+		element.findElements(By.cssSelector("rect[mask='url(#svg-mask-status-offline)']")).size() != 0;
+	}
+
+	private static boolean isOffline(WebElement element) {
+		String ariaLabel = element.findElement(By.className("wrapper-3Un6-K")).getAttribute("aria-label").toLowerCase();
+		return ariaLabel.contains("offline");
 	}
 
 	private static String createActivityLogFIleIfMissing(String currentDir, String account) {
