@@ -1,4 +1,6 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.github.yilativs.discord</groupId>
 	<artifactId>discord-activity-tracker</artifactId>
@@ -6,7 +8,7 @@
 	<properties>
 		<maven.compiler.target>17</maven.compiler.target>
 		<maven.compiler.source>17</maven.compiler.source>
-		<selenium.version>4.10.0</selenium.version>
+		<selenium.version>4.12.1</selenium.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -19,6 +21,12 @@
 					<artifactId>slf4j-api</artifactId>
 				</exclusion>
 			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>io.github.bonigarcia</groupId>
+			<artifactId>webdrivermanager</artifactId>
+			<version>5.5.3</version>
+			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.seleniumhq.selenium</groupId>
@@ -39,7 +47,8 @@
 				<configuration>
 					<archive>
 						<manifest>
-							<mainClass>com.github.yilativs.discord.DiscordActivityTracker</mainClass>
+							<mainClass>
+								com.github.yilativs.discord.DiscordActivityTracker</mainClass>
 						</manifest>
 					</archive>
 					<descriptorRefs>
@@ -48,7 +57,8 @@
 				</configuration>
 				<executions>
 					<execution>
-						<id>make-assembly</id> <!-- this is used for inheritance merges -->
+						<id>make-assembly</id> <!-- this is used for inheritance
+						merges -->
 						<phase>package</phase> <!-- bind to the packaging phase -->
 						<goals>
 							<goal>single</goal>
