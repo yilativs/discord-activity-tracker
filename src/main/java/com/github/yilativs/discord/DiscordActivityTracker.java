@@ -1,6 +1,7 @@
 package com.github.yilativs.discord;
 
 import static java.nio.file.Files.write;
+
 import static java.time.Duration.between;
 import static java.time.LocalDateTime.now;
 
@@ -136,7 +137,8 @@ public class DiscordActivityTracker {
 	private static ChromeDriver createChromeDriver() {
 		System.setProperty("webdriver.chrome.driver", "/opt/webdriver/chromedriver");
 		ChromeOptions options = new ChromeOptions();
-		options.setBinary("/opt/google/chrome/chrome");
+		options.setBinary("/opt/chrome/chrome");
+//		options.addArguments("--headless=new");
 		options.addArguments("--disable-gpu");
 		options.addArguments("--disable-crash-reporter");
 		options.addArguments("--disable-extensions");
@@ -145,13 +147,13 @@ public class DiscordActivityTracker {
 		options.addArguments("--disable-dev-shm-usage");
 //		options.addArguments("--log-level=3");
 		options.addArguments("--output=/dev/null");
-//		options.addArguments("--headless");
 //		options.addArguments("--window-size=1920,1200");
 		options.addArguments("--allow-running-insecure-content");
 		options.addArguments("--ignore-certificate-errors");
-		options.addArguments("--allow-running-insecure-content");
+
 		options.addArguments("--no-sandbox");
 //		options.setExperimentalOption("prefs", Map.of("profiBogdan Stojčićle.managed_default_content_settings.images", 2));
+		// driver = WebDriverManager.chromedriver().create();
 		var driver = new ChromeDriver(options);
 		addShutdownHookToDisposeWebDriver(driver);
 		return driver;
@@ -212,7 +214,7 @@ public class DiscordActivityTracker {
 	}
 
 	private static boolean isOffline(WebElement element) {
-		String ariaLabel = element.findElement(By.className("wrapper-3Un6-K")).getAttribute("aria-label").toLowerCase();
+		String ariaLabel = element.findElement(By.className("wrapper_edb6e0")).getAttribute("aria-label").toLowerCase();
 		return ariaLabel.contains("offline");
 	}
 
