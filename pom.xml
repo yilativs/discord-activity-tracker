@@ -6,8 +6,8 @@
 	<artifactId>discord-activity-tracker</artifactId>
 	<version>1.0.1</version>
 	<properties>
-		<maven.compiler.target>17</maven.compiler.target>
-		<maven.compiler.source>17</maven.compiler.source>
+		<maven.compiler.target>21</maven.compiler.target>
+		<maven.compiler.source>21</maven.compiler.source>
 		<selenium.version>4.12.1</selenium.version>
 	</properties>
 	<dependencies>
