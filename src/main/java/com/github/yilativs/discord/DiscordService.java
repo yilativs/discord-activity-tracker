@@ -1,12 +1,21 @@
 package com.github.yilativs.discord;
 
+import static java.lang.Long.parseLong;
+
+import java.awt.AWTException;
+import java.awt.Robot;
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriverException;
@@ -16,7 +25,13 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.yilativs.discord.model.Emoji;
+import com.github.yilativs.discord.model.Image;
+import com.github.yilativs.discord.model.Message;
+
 public class DiscordService {
+	private static final int PAGE_UP_COUNT = 50;
+
 	private static final Logger logger = LoggerFactory.getLogger(DiscordService.class);
 
 	private static final String EMAIL = "email";
@@ -25,20 +40,26 @@ public class DiscordService {
 
 	private static final String ACCOUNT_TO_TRACK = "account-to-track";
 	private static final String PASSWORD = "password";
-	
 
 	private String email;
 	private String account;
 	private String password;
 	private static ChromeDriver driver;
-	
+
 	private static final String USER_DIR = "user.dir";
+
+	private Robot robot;
 
 	public DiscordService() {
 		logger.info("Discord Activity Tracker started");
 		String currentDir = System.getProperty(USER_DIR);
 		File currentDirPropertyFile = new File(
 				currentDir + FileSystems.getDefault().getSeparator() + PROPERTY_FILE_NAME);
+		try {
+			robot = new Robot();
+		} catch (AWTException e) {
+			logger.error("Robot creation failed", e);
+		}
 
 		try (InputStream input = new FileInputStream(currentDirPropertyFile)) {
 			Properties properties = new Properties();
@@ -77,6 +98,91 @@ public class DiscordService {
 			driver.quit();
 
 		}));
+	}
+
+	public void clickChannel(String id) throws InterruptedException {
+		driver.findElement(By.cssSelector("a[data-list-item-id='private-channels-uid_26___" + id + "']")).click();
+		Thread.sleep(3000);
+	}
+
+	public SortedSet<Message> getMessages(long timestamp, int maxSize) throws InterruptedException {
+		SortedSet<Message> messages = new TreeSet<>((m1, m2) -> Long.compare(m1.unixTimestamp(), m2.unixTimestamp()));
+		Message firstPreviouslyHandledMessage = null;
+		do {
+			List<Message> pageMessages = getPageMessages(timestamp);
+			messages.addAll(pageMessages);
+			if (pageMessages.isEmpty() || (firstPreviouslyHandledMessage != null
+					&& firstPreviouslyHandledMessage.equals(pageMessages.getFirst()))) {
+				return messages;
+			}
+			firstPreviouslyHandledMessage = pageMessages.getFirst();
+			for (Message message : pageMessages) {
+				if (message.unixTimestamp() < timestamp) {
+					messages.add(message);
+				}
+			}
+			timestamp = firstPreviouslyHandledMessage.unixTimestamp();
+			for (int i = 0; i < PAGE_UP_COUNT; i++) {
+				pressPageUp();
+			}
+			Thread.sleep(1000);
+		} while (messages.size() < maxSize);
+		return messages;
+	}
+
+	private void pressPageUp() throws InterruptedException {
+		robot.keyPress(KeyEvent.VK_PAGE_UP);
+		robot.keyRelease(KeyEvent.VK_PAGE_UP);
+		Thread.sleep(500);
+	}
+
+	private List<Message> getPageMessages(long fromTimestamp) {
+		List<Message> messages = new ArrayList<>();
+		List<WebElement> webElements = driver.findElements(By.className("messageListItem__6a4fb"));
+		String avatarUrl = null;
+		for (WebElement element : webElements) {
+			try {
+				long timestamp = getMessageTimestamp(element);
+				// returns previos avatar if not found
+				avatarUrl = getAvatarUrl(element, avatarUrl);
+				String text = getMessageContent(element);
+				String replyText = getReplyMessageContent(element);
+				List<Emoji> emojes = getMessageEmojes(element);
+				Image image = getMessageImage(element);
+				messages.add(new Message(timestamp, avatarUrl, replyText, image, emojes,text));
+			} catch (RuntimeException e) {
+				logger.error("failed to read message because of :" + e.getMessage(), e);
+			}
+		}
+		return messages;
+	}
+
+	private Image getMessageImage(WebElement element) {
+		List<WebElement> images = element.findElements(By.cssSelector("a[data-role='img'"));
+		return images.isEmpty()? null : new Image(images.getFirst().getAttribute("href"),images.getFirst().getAttribute("data-safe-src"));
+	}
+
+	private List<Emoji> getMessageEmojes(WebElement element) {
+		return element.findElements(By.cssSelector("img[class='emoji'")).stream().map(e->new Emoji(e.getAttribute("src"),e.getAttribute("alt"))).toList();
+	}
+
+	private String getMessageContent(WebElement element) {
+		return element.findElement(By.className("messageContent__21e69")).getText();
+	}
+
+	private String getReplyMessageContent(WebElement element) {
+		var elements = element.findElements(By.className("repliedTextPreview__90311"));// clickable_d866f1
+		return elements.isEmpty() ? null : elements.getFirst().getText();
+	}
+
+
+	private String getAvatarUrl(WebElement element, String previosAvatarUrl) {
+		List<WebElement> avatarElements = element.findElements(By.className("avatar__08316"));// clickable_d866f1
+		return avatarElements.isEmpty() ? previosAvatarUrl : avatarElements.getFirst().getAttribute("src");
+	}
+
+	private long getMessageTimestamp(WebElement element) {
+		return parseLong(element.getDomAttribute("id").split("-")[3]);
 	}
 
 	public void login() throws InterruptedException {
@@ -129,7 +235,8 @@ public class DiscordService {
 		try {
 			// click on the tacked user icon and copy id
 			WebElement element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + account + "']"));
-			String ariaLabel = element.findElement(By.className("wrapper_edb6e0")).getAttribute("aria-label").toLowerCase();
+			String ariaLabel = element.findElement(By.className("wrapper_edb6e0")).getAttribute("aria-label")
+					.toLowerCase();
 			return ariaLabel.contains("offline");
 		} catch (WebDriverException e) {
 			driver.close();
