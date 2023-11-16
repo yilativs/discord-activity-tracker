@@ -1,6 +1,9 @@
-package com.github.yilativs.discord;
+package com.github.yilativs.discord.service;
 
-import static java.lang.Long.parseLong;
+import static java.util.Optional.empty;
+import static java.util.Optional.of;
+import static org.openqa.selenium.By.className;
+import static org.openqa.selenium.By.tagName;
 
 import java.awt.AWTException;
 import java.awt.Robot;
@@ -11,8 +14,10 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -26,7 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.yilativs.discord.model.Emoji;
-import com.github.yilativs.discord.model.Image;
+import com.github.yilativs.discord.model.ExternalFile;
 import com.github.yilativs.discord.model.Message;
 
 public class DiscordService {
@@ -44,11 +49,27 @@ public class DiscordService {
 	private String email;
 	private String account;
 	private String password;
+
+	private String dbUrl;
+	private String dbUser;
+	private String dbPassword;
 	private static ChromeDriver driver;
 
 	private static final String USER_DIR = "user.dir";
 
 	private Robot robot;
+
+	public String getDbUrl() {
+		return dbUrl;
+	}
+
+	public String getDbUser() {
+		return dbUser;
+	}
+
+	public String getDbPassword() {
+		return dbPassword;
+	}
 
 	public DiscordService() {
 		logger.info("Discord Activity Tracker started");
@@ -67,6 +88,11 @@ public class DiscordService {
 			email = getProperty(properties, EMAIL);
 			account = getProperty(properties, ACCOUNT_TO_TRACK);
 			password = getPassword(properties);
+
+			dbUrl = getProperty(properties, "db-url");
+			dbUser = getProperty(properties, "db-user");
+			// TODO replace with secured password reading
+			dbPassword = getProperty(properties, "db-password");
 			driver = createChromeDriver();
 		} catch (FileNotFoundException e) {
 			logger.error("Configuration file not found at:" + PROPERTY_FILE_NAME);
@@ -101,33 +127,40 @@ public class DiscordService {
 	}
 
 	public void clickChannel(String id) throws InterruptedException {
-		driver.findElement(By.cssSelector("a[data-list-item-id='private-channels-uid_26___" + id + "']")).click();
+		driver.get("https://discord.com/channels/@me/" + id);
+//		driver.findElement(By.cssSelector("a[data-list-item-id='private-channels-uid_26___" + id + "']")).click();
 		Thread.sleep(3000);
 	}
 
-	public SortedSet<Message> getMessages(long timestamp, int maxSize) throws InterruptedException {
-		SortedSet<Message> messages = new TreeSet<>((m1, m2) -> Long.compare(m1.unixTimestamp(), m2.unixTimestamp()));
-		Message firstPreviouslyHandledMessage = null;
+	/**
+	 * 
+	 * @param toGmtDateTime only messages before this timestamp will be returned
+	 * @param softSizeLimit the amount of returned values may be a bit bigger than
+	 *                      softSizeLimit
+	 * @return messages
+	 * @throws InterruptedException
+	 */
+	public SortedSet<Message> getMessages(LocalDateTime toGmtDateTime, int softSizeLimit) throws InterruptedException {
+		// we want it reversed, so that oldest messages were first
+		SortedSet<Message> messages = new TreeSet<Message>((a, b) -> b.gmtDateTime().compareTo(a.gmtDateTime()));
 		do {
-			List<Message> pageMessages = getPageMessages(timestamp);
+			List<Message> pageMessages = getPageMessages(toGmtDateTime);
 			messages.addAll(pageMessages);
-			if (pageMessages.isEmpty() || (firstPreviouslyHandledMessage != null
-					&& firstPreviouslyHandledMessage.equals(pageMessages.getFirst()))) {
-				return messages;
+			if (pageMessages.isEmpty()) {
+				break;
 			}
-			firstPreviouslyHandledMessage = pageMessages.getFirst();
-			for (Message message : pageMessages) {
-				if (message.unixTimestamp() < timestamp) {
-					messages.add(message);
-				}
-			}
-			timestamp = firstPreviouslyHandledMessage.unixTimestamp();
-			for (int i = 0; i < PAGE_UP_COUNT; i++) {
-				pressPageUp();
-			}
-			Thread.sleep(1000);
-		} while (messages.size() < maxSize);
+			messages.addAll(pageMessages);
+			toGmtDateTime = pageMessages.getFirst().gmtDateTime();
+			pressPageUpNTimes();
+		} while (messages.size() < softSizeLimit);
 		return messages;
+	}
+
+	private void pressPageUpNTimes() throws InterruptedException {
+		for (int i = 0; i < PAGE_UP_COUNT; i++) {
+			pressPageUp();
+		}
+		Thread.sleep(1000);
 	}
 
 	private void pressPageUp() throws InterruptedException {
@@ -136,20 +169,27 @@ public class DiscordService {
 		Thread.sleep(500);
 	}
 
-	private List<Message> getPageMessages(long fromTimestamp) {
+	private List<Message> getPageMessages(LocalDateTime toGmtDateTime) {
 		List<Message> messages = new ArrayList<>();
-		List<WebElement> webElements = driver.findElements(By.className("messageListItem__6a4fb"));
+		List<WebElement> webElements = driver.findElements(className("messageListItem__6a4fb"));
 		String avatarUrl = null;
+		String userName = null;
 		for (WebElement element : webElements) {
 			try {
-				long timestamp = getMessageTimestamp(element);
+				LocalDateTime gmtDateTime = getDateTime(element);
+				if (toGmtDateTime.isBefore(gmtDateTime)) {
+					break;
+				}
+				Optional<String> messageUserName = getUserName(element);
+				userName = messageUserName.isPresent() ? messageUserName.get() : userName;
 				// returns previos avatar if not found
 				avatarUrl = getAvatarUrl(element, avatarUrl);
-				String text = getMessageContent(element);
-				String replyText = getReplyMessageContent(element);
-				List<Emoji> emojes = getMessageEmojes(element);
-				Image image = getMessageImage(element);
-				messages.add(new Message(timestamp, avatarUrl, replyText, image, emojes,text));
+				String replyText = getReplyText(element);
+				String text = getText(element);
+				List<Emoji> emojes = getEmojes(element);
+				ExternalFile image = getMessageImage(element);
+				ExternalFile video = getMessageVideo(element);
+				messages.add(new Message(userName, gmtDateTime, avatarUrl, replyText, video, image, emojes, text));
 			} catch (RuntimeException e) {
 				logger.error("failed to read message because of :" + e.getMessage(), e);
 			}
@@ -157,32 +197,51 @@ public class DiscordService {
 		return messages;
 	}
 
-	private Image getMessageImage(WebElement element) {
+	private ExternalFile getMessageVideo(WebElement element) {
+		List<WebElement> videos = element.findElements(By.cssSelector("video[class='video__4c052'"));
+		return videos.isEmpty() ? null
+				: new ExternalFile(videos.getFirst().getAttribute("src"), videos.getFirst().getAttribute("poster"));
+	}
+
+	private Optional<String> getUserName(WebElement element) {
+		// <span class="username_d30d99 desaturateUserColors_b72bd3 clickable_d866f1"
+		// aria-expanded="false" role="button" tabindex="0">Vitaliy</span>
+		var elements = element.findElements(className("username_d30d99"));
+		return elements.isEmpty() ? empty() : of(elements.getFirst().getText());
+	}
+
+	private ExternalFile getMessageImage(WebElement element) {
 		List<WebElement> images = element.findElements(By.cssSelector("a[data-role='img'"));
-		return images.isEmpty()? null : new Image(images.getFirst().getAttribute("href"),images.getFirst().getAttribute("data-safe-src"));
+		return images.isEmpty() ? null
+				: new ExternalFile(images.getFirst().getAttribute("href"), images.getFirst().getAttribute("data-safe-src"));
 	}
 
-	private List<Emoji> getMessageEmojes(WebElement element) {
-		return element.findElements(By.cssSelector("img[class='emoji'")).stream().map(e->new Emoji(e.getAttribute("src"),e.getAttribute("alt"))).toList();
+	private List<Emoji> getEmojes(WebElement element) {
+		return element.findElements(By.cssSelector("img[class='emoji'")).stream()
+				.map(e -> new Emoji(e.getAttribute("src"), e.getAttribute("alt"))).toList();
 	}
 
-	private String getMessageContent(WebElement element) {
-		return element.findElement(By.className("messageContent__21e69")).getText();
+	private String getText(WebElement element) {
+		return element.findElement(className("messageContent__21e69")).getText();
 	}
 
-	private String getReplyMessageContent(WebElement element) {
-		var elements = element.findElements(By.className("repliedTextPreview__90311"));// clickable_d866f1
+	private String getReplyText(WebElement element) {
+		var elements = element.findElements(className("repliedTextPreview__90311"));// clickable_d866f1
 		return elements.isEmpty() ? null : elements.getFirst().getText();
 	}
 
-
 	private String getAvatarUrl(WebElement element, String previosAvatarUrl) {
-		List<WebElement> avatarElements = element.findElements(By.className("avatar__08316"));// clickable_d866f1
+		List<WebElement> avatarElements = element.findElements(className("avatar__08316"));// clickable_d866f1
 		return avatarElements.isEmpty() ? previosAvatarUrl : avatarElements.getFirst().getAttribute("src");
 	}
 
-	private long getMessageTimestamp(WebElement element) {
-		return parseLong(element.getDomAttribute("id").split("-")[3]);
+	private LocalDateTime getDateTime(WebElement element) {
+		// TODO replace with getting LocalDateTime
+		// <time aria-label="October 18, 2023 12:32 PM"
+		// id="message-timestamp-1164148929085067324"
+		// datetime="2023-10-18T10:32:13.535Z"
+		CharSequence dateTimeString = element.findElement(tagName("time")).getAttribute("datetime");
+		return LocalDateTime.parse(dateTimeString.subSequence(0, dateTimeString.length() - 1));
 	}
 
 	public void login() throws InterruptedException {
@@ -235,7 +294,7 @@ public class DiscordService {
 		try {
 			// click on the tacked user icon and copy id
 			WebElement element = driver.findElement(By.xpath("//a[@href='/channels/@me/" + account + "']"));
-			String ariaLabel = element.findElement(By.className("wrapper_edb6e0")).getAttribute("aria-label")
+			String ariaLabel = element.findElement(className("wrapper_edb6e0")).getAttribute("aria-label")
 					.toLowerCase();
 			return ariaLabel.contains("offline");
 		} catch (WebDriverException e) {

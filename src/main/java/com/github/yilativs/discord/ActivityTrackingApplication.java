@@ -15,6 +15,8 @@ import org.openqa.selenium.WebDriverException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.yilativs.discord.service.DiscordService;
+
 public class ActivityTrackingApplication {
 	private static final Logger logger = LoggerFactory.getLogger(ActivityTrackingApplication.class);
 	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
